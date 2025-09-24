@@ -762,39 +762,45 @@ async function handleAPI(request, env, corsHeaders) {
   }
 
   if (path === '/api/submit' && method === 'POST') {
-    const body = await request.json();
-    const { conferenceId, answer, name, email, turnstileToken } = body;
+    const { conference, name, email, answer, turnstileToken } = await request.json();
     
-    // Verify Turnstile token
     if (!turnstileToken) {
-      return new Response('Turnstile verification required', { status: 400, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: 'Turnstile token required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
-    
+
+    // Verify Turnstile token
     const turnstileResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        secret: env.TURNSTILE_SECRET_KEY,
-        response: turnstileToken
-      })
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `secret=${env.TURNSTILE_SECRET_KEY}&response=${turnstileToken}`,
     });
-    
+
     const turnstileResult = await turnstileResponse.json();
+    
     if (!turnstileResult.success) {
-      return new Response('Turnstile verification failed', { status: 400, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: 'Turnstile verification failed' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
     
-    const conference = await env.PUZZLE_KV.get('conference:' + conferenceId);
-    if (!conference) {
+    const conferenceId = conference;
+    const conferenceData = await env.PUZZLE_KV.get('conference:' + conferenceId);
+    if (!conferenceData) {
       return new Response('Conference not found', { status: 404, headers: corsHeaders });
     }
     
-    const conferenceData = JSON.parse(conference);
-    if (!conferenceData.active) {
+    const conferenceInfo = JSON.parse(conferenceData);
+    if (!conferenceInfo.active) {
       return new Response('Contest has ended', { status: 400, headers: corsHeaders });
     }
     
-    const isCorrect = JSON.stringify(answer) === JSON.stringify(conferenceData.puzzle.solution);
+    const isCorrect = answer === conferenceInfo.puzzle.solution.join('');
     
     const submission = {
       id: crypto.randomUUID(),
@@ -934,6 +940,57 @@ async function handleAPI(request, env, corsHeaders) {
     
     return new Response(html, {
       headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' }
+    });
+  }
+
+  // Test endpoint for bulk data generation (bypasses Turnstile)
+  if (path === '/api/test-submit' && method === 'POST') {
+    const { conference, name, email, answer } = await request.json();
+    
+    const conferenceId = conference;
+    const conferenceData = await env.PUZZLE_KV.get('conference:' + conferenceId);
+    if (!conferenceData) {
+      return new Response('Conference not found', { status: 404, headers: corsHeaders });
+    }
+    
+    const conferenceInfo = JSON.parse(conferenceData);
+    const isCorrect = answer === conferenceInfo.puzzle.solution.join('');
+    
+    const submission = {
+      id: crypto.randomUUID(),
+      conferenceId,
+      answer,
+      name,
+      email,
+      correct: isCorrect,
+      timestamp: new Date().toISOString()
+    };
+    
+    await env.PUZZLE_KV.put('submission:' + submission.id, JSON.stringify(submission));
+    
+    return new Response(JSON.stringify({ success: true, correct: isCorrect }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  // Debug endpoint to check submissions
+  if (path === '/api/debug-submissions' && method === 'GET') {
+    const conferenceId = url.searchParams.get('conference');
+    const keys = await env.PUZZLE_KV.list({ prefix: 'submission:' });
+    const submissions = [];
+    
+    for (const key of keys.keys) {
+      const data = await env.PUZZLE_KV.get(key.name);
+      if (data) {
+        const submission = JSON.parse(data);
+        if (!conferenceId || submission.conferenceId === conferenceId) {
+          submissions.push(submission);
+        }
+      }
+    }
+    
+    return new Response(JSON.stringify(submissions, null, 2), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 
@@ -1840,10 +1897,12 @@ async function handleWinnerWheel(url, env) {
             width: 350px;
             height: 350px;
             border-radius: 50%;
-            border: 8px solid #ff6b35;
-            margin: 20px auto;
             position: relative;
-            transition: transform 3s cubic-bezier(0.25, 0.1, 0.25, 1);
+            margin: 30px auto;
+            border: 8px solid #2d3436;
+            transition: transform 3s cubic-bezier(0.17, 0.67, 0.12, 0.99);
+            transform-origin: center center;
+            overflow: hidden;
         }
 
         .wheel-segment {
@@ -1851,12 +1910,26 @@ async function handleWinnerWheel(url, env) {
             width: 50%;
             height: 50%;
             transform-origin: 100% 100%;
+            clip-path: polygon(0 0, 100% 0, 100% 100%);
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
+            padding-left: 20px;
             font-weight: bold;
             color: white;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+        
+        .wheel-segment span {
+            transform-origin: center center;
+            display: block;
+            text-align: left;
+            white-space: nowrap;
+            font-size: clamp(0.6em, 1.2vw, 0.9em);
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .wheel-pointer {
@@ -1998,15 +2071,26 @@ async function handleWinnerWheel(url, env) {
             if (participants.length === 0) return;
 
             const wheel = document.getElementById('wheel');
+            wheel.innerHTML = ''; // Clear existing segments
             const segmentAngle = 360 / participants.length;
-            const colors = ['#ff6b35', '#f7931e', '#00b894', '#00cec9', '#6c5ce7', '#a29bfe', '#e17055', '#fd79a8'];
+            const colors = ['#ff6b35', '#f7931e', '#00b894', '#00cec9', '#6c5ce7', '#a29bfe', '#e17055', '#fd79a8', '#74b9ff', '#55a3ff'];
 
             participants.forEach((participant, index) => {
                 const segment = document.createElement('div');
                 segment.className = 'wheel-segment';
                 segment.style.backgroundColor = colors[index % colors.length];
-                segment.style.transform = 'rotate(' + (index * segmentAngle) + 'deg) skewY(' + (90 - segmentAngle) + 'deg)';
-                segment.innerHTML = '<span style="transform: skewY(' + (segmentAngle - 90) + 'deg) rotate(' + (segmentAngle / 2) + 'deg);">' + participant.name.split(' ')[0] + '</span>';
+                segment.style.transform = 'rotate(' + (index * segmentAngle) + 'deg)';
+                
+                // Better text handling for names
+                const displayName = participant.name.length > 15 ? 
+                    participant.name.split(' ')[0] : 
+                    participant.name;
+                
+                // Calculate text rotation to point toward center
+                const textRotation = segmentAngle > 180 ? (segmentAngle / 2) + 180 : (segmentAngle / 2);
+                const textAlign = segmentAngle > 180 ? 'right' : 'left';
+                
+                segment.innerHTML = '<span style="transform: rotate(' + textRotation + 'deg); text-align: ' + textAlign + ';">' + displayName + '</span>';
                 wheel.appendChild(segment);
             });
         }
@@ -2018,19 +2102,34 @@ async function handleWinnerWheel(url, env) {
 
             isSpinning = true;
             document.getElementById('spinBtn').disabled = true;
+            document.getElementById('spinBtn').textContent = '🎲 SPINNING...';
             document.getElementById('winnerDisplay').style.display = 'none';
             document.getElementById('endContestBtn').style.display = 'none';
 
             const wheel = document.getElementById('wheel');
-            const spins = 5 + Math.random() * 5; // 5-10 full rotations
-            const finalAngle = Math.random() * 360;
-            const totalRotation = spins * 360 + finalAngle;
+            
+            // Reset wheel position first
+            wheel.style.transition = 'none';
+            wheel.style.transform = 'rotate(0deg)';
+            
+            // Force reflow
+            wheel.offsetHeight;
+            
+            // Add spinning animation with proper easing
+            wheel.style.transition = 'transform 3s cubic-bezier(0.17, 0.67, 0.12, 0.99)';
+            
+            // Calculate final position - ensure it spins multiple times and lands on a winner
+            const segmentAngle = 360 / participants.length;
+            const winnerIndex = Math.floor(Math.random() * participants.length);
+            const baseSpins = 8 + Math.random() * 4; // 8-12 full rotations for dramatic effect
+            const targetAngle = (winnerIndex * segmentAngle) + (segmentAngle / 2); // Center of winner segment
+            const finalRotation = (baseSpins * 360) + (360 - targetAngle); // Subtract because wheel spins clockwise but we measure counter-clockwise
+            
+            // Apply the spin
+            wheel.style.transform = 'rotate(' + finalRotation + 'deg)';
 
-            wheel.style.transform = 'rotate(' + totalRotation + 'deg)';
-
+            // Show winner after 3 seconds
             setTimeout(() => {
-                const segmentAngle = 360 / participants.length;
-                const winnerIndex = Math.floor(((360 - (finalAngle % 360)) / segmentAngle)) % participants.length;
                 const winner = participants[winnerIndex];
                 selectedWinner = winner;
 
