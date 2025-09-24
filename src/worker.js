@@ -218,6 +218,7 @@ async function handlePuzzleDisplay(url, env) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crack the Code - Cloudflare Booth Puzzle</title>
+    <link rel="icon" type="image/x-icon" href="https://r2.lusostreams.com/puzzleicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -934,6 +935,7 @@ async function handleAPI(request, env, corsHeaders) {
 <html><head>
 <meta charset="UTF-8">
 <title>Submissions - ${conferenceId}</title>
+<link rel="icon" type="image/x-icon" href="https://r2.lusostreams.com/puzzleicon.ico">
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; }
   table { width: 100%; border-collapse: collapse; }
@@ -1024,6 +1026,7 @@ async function handleAdminUI(env) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cloudflare Booth Puzzle - Admin</title>
+    <link rel="icon" type="image/x-icon" href="https://r2.lusostreams.com/puzzleicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1571,6 +1574,7 @@ async function handleSubmitForm(url, env) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Submit Your Answer - Cloudflare Booth</title>
+    <link rel="icon" type="image/x-icon" href="https://r2.lusostreams.com/puzzleicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -1730,10 +1734,6 @@ async function handleSubmitForm(url, env) {
             <p id="errorText">Please try again.</p>
         </div>
     </div>
-    
-    <div style="text-align: center; padding: 10px; font-size: 0.8em; opacity: 0.6; color: #636e72;">
-        Built on Cloudflare Workers
-    </div>
 
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <script>
@@ -1853,6 +1853,7 @@ async function handleWinnerWheel(url, env) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Winner Selection - ${conferenceData.name}</title>
+    <link rel="icon" type="image/x-icon" href="https://r2.lusostreams.com/puzzleicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
