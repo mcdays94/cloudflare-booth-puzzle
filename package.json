@@ -1,0 +1,13 @@
+{
+  "name": "cloudflare-booth-puzzle",
+  "version": "1.0.0",
+  "description": "Interactive puzzle system for cybersecurity conferences",
+  "main": "src/worker.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^3.112.0"
+  }
+}

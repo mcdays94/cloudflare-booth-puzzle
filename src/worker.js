@@ -639,6 +639,10 @@ async function handlePuzzleDisplay(url, env) {
             <span>#EverywhereSecurity</span>
             <img src="https://imagedelivery.net/LDaKen7vOKX42km4kZ-43A/21c30227-7801-44fe-6149-121c5044a100/thumbnail" alt="Cloudflare" />
         </div>
+        
+        <div style="text-align: center; padding: 10px; font-size: 0.8em; opacity: 0.6; color: #636e72;">
+            Built on Cloudflare Workers
+        </div>
     </div>
 
     <script>
@@ -735,6 +739,18 @@ async function handleAPI(request, env, corsHeaders) {
     
     const conferenceData = JSON.parse(conference);
     conferenceData.puzzle = generatePuzzle();
+    
+    // Clear all existing submissions for this conference
+    const keys = await env.PUZZLE_KV.list({ prefix: 'submission:' });
+    for (const key of keys.keys) {
+      const data = await env.PUZZLE_KV.get(key.name);
+      if (data) {
+        const submission = JSON.parse(data);
+        if (submission.conferenceId === conferenceId) {
+          await env.PUZZLE_KV.delete(key.name);
+        }
+      }
+    }
     
     await env.PUZZLE_KV.put('conference:' + conferenceId, JSON.stringify(conferenceData));
     
@@ -847,6 +863,7 @@ async function handleAPI(request, env, corsHeaders) {
     const conferenceId = path.match(/^\/api\/conferences\/([^\/]+)\/submission-count$/)[1];
     const keys = await env.PUZZLE_KV.list({ prefix: 'submission:' });
     let count = 0;
+    let correctCount = 0;
     
     for (const key of keys.keys) {
       const data = await env.PUZZLE_KV.get(key.name);
@@ -854,11 +871,14 @@ async function handleAPI(request, env, corsHeaders) {
         const submission = JSON.parse(data);
         if (submission.conferenceId === conferenceId) {
           count++;
+          if (submission.correct) {
+            correctCount++;
+          }
         }
       }
     }
     
-    return new Response(JSON.stringify({ count }), {
+    return new Response(JSON.stringify({ count, correctCount }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
@@ -931,7 +951,7 @@ async function handleAPI(request, env, corsHeaders) {
       <td>${new Date(sub.timestamp).toLocaleString()}</td>
       <td>${sub.name}</td>
       <td>${sub.email}</td>
-      <td>${sub.answer.join('')}</td>
+      <td>${Array.isArray(sub.answer) ? sub.answer.join('') : sub.answer}</td>
       <td>${sub.correct ? '✅' : '❌'}</td>
     </tr>`
   ).join('')}
@@ -939,7 +959,7 @@ async function handleAPI(request, env, corsHeaders) {
 </body></html>`;
     
     return new Response(html, {
-      headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' }
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
     });
   }
 
@@ -954,7 +974,7 @@ async function handleAPI(request, env, corsHeaders) {
     }
     
     const conferenceInfo = JSON.parse(conferenceData);
-    const isCorrect = answer === conferenceInfo.puzzle.solution.join('');
+    const isCorrect = JSON.stringify(answer) === JSON.stringify(conferenceInfo.puzzle.solution);
     
     const submission = {
       id: crypto.randomUUID(),
@@ -1160,7 +1180,7 @@ async function handleAdminUI(env) {
             <h2>Create New Conference</h2>
             <div class="form-group">
                 <label for="newConferenceName">Conference Name:</label>
-                <input type="text" id="newConferenceName" placeholder="e.g., RSA Conference 2024">
+                <input type="text" id="newConferenceName" placeholder="" data-placeholder-template="e.g., RSA Conference {year}">
             </div>
             <button onclick="createConference()">+ Create Conference</button>
         </div>
@@ -1244,30 +1264,32 @@ async function handleAdminUI(env) {
                     '<small>' + conf.winner.email + '</small>' +
                 '</div>' : '';
             
-            // Get submission count for this conference by counting KV keys
+            // Get submission count and correct ratio for this conference
             let submissionCount = 0;
+            let correctCount = 0;
+            let correctRatio = 0;
             try {
                 const response = await fetch('/api/conferences/' + conf.id + '/submission-count');
                 if (response.ok) {
                     const data = await response.json();
                     submissionCount = data.count;
+                    correctCount = data.correctCount || 0;
+                    correctRatio = submissionCount > 0 ? Math.round((correctCount / submissionCount) * 100) : 0;
                 }
             } catch (e) {
                 // Ignore errors, default to 0
             }
             
-            // Check current display mode for active conferences
+            // Get display mode for this conference
             let displayMode = null;
-            if (isActive) {
-                try {
-                    const response = await fetch('/api/conferences/' + conf.id + '/display-mode');
-                    if (response.ok) {
-                        const data = await response.json();
-                        displayMode = data.mode;
-                    }
-                } catch (e) {
-                    // Ignore errors, default to null
+            try {
+                const response = await fetch('/api/conferences/' + conf.id + '/display-mode');
+                if (response.ok) {
+                    const data = await response.json();
+                    displayMode = data.mode;
                 }
+            } catch (e) {
+                // Ignore errors, default to null
             }
             
             return '<div class="conference-card ' + (conf.active ? 'active' : 'inactive') + '">' +
@@ -1278,6 +1300,7 @@ async function handleAdminUI(env) {
                 '<p><strong>ID:</strong> ' + conf.id + '</p>' +
                 '<p><strong>Created:</strong> ' + new Date(conf.created).toLocaleDateString() + '</p>' +
                 '<p><strong>Submissions:</strong> ' + submissionCount + '</p>' +
+                '<p><strong>✅ %:</strong> ' + correctRatio + '%</p>' +
                 (displayMode === 'winner' ? '<p><strong>Current View:</strong> Winner Wheel</p>' : '') +
                 winnerInfo +
                 '<div class="current-puzzle">' +
@@ -1291,6 +1314,7 @@ async function handleAdminUI(env) {
                     '<button data-action="viewPuzzle" data-conference="' + conf.id + '" class="btn-secondary action-btn">View Puzzle</button>' +
                     (isActive ? 
                         '<button data-action="reshufflePuzzle" data-conference="' + conf.id + '" class="action-btn">Reshuffle</button>' +
+                        '<button data-action="viewSubmissions" data-conference="' + conf.id + '" class="btn-secondary action-btn">View<br>Submissions</button>' +
                         '<button data-action="finishContest" data-conference="' + conf.id + '" class="btn-danger action-btn">Finish Contest</button>' +
                         (displayMode === 'winner' ? 
                             '<button data-action="switchToPuzzle" data-conference="' + conf.id + '" class="btn-secondary action-btn">Back to Puzzle Screen</button>' :
@@ -1335,7 +1359,7 @@ async function handleAdminUI(env) {
         }
 
         async function reshufflePuzzle(conferenceId) {
-            if (!confirm('Are you sure you want to reshuffle this puzzle? This will generate a new solution.')) {
+            if (!confirm('Are you sure you want to reshuffle this puzzle? This will generate a new solution and DELETE ALL EXISTING SUBMISSIONS for this conference.')) {
                 return;
             }
 
@@ -1435,6 +1459,13 @@ async function handleAdminUI(env) {
         
         function initializePage() {
             console.log('Initializing page, calling loadConferences...');
+            
+            // Set dynamic placeholder with current year
+            const currentYear = new Date().getFullYear();
+            const placeholderInput = document.getElementById('newConferenceName');
+            const template = placeholderInput.getAttribute('data-placeholder-template');
+            placeholderInput.placeholder = template.replace('{year}', currentYear);
+            
             try {
                 loadConferences();
             } catch (error) {
@@ -1699,6 +1730,10 @@ async function handleSubmitForm(url, env) {
             <p id="errorText">Please try again.</p>
         </div>
     </div>
+    
+    <div style="text-align: center; padding: 10px; font-size: 0.8em; opacity: 0.6; color: #636e72;">
+        Built on Cloudflare Workers
+    </div>
 
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <script>
@@ -1894,8 +1929,8 @@ async function handleWinnerWheel(url, env) {
         }
 
         .wheel {
-            width: 350px;
-            height: 350px;
+            width: 500px;
+            height: 500px;
             border-radius: 50%;
             position: relative;
             margin: 30px auto;
@@ -1907,34 +1942,34 @@ async function handleWinnerWheel(url, env) {
 
         .wheel-segment {
             position: absolute;
-            width: 50%;
-            height: 50%;
-            transform-origin: 100% 100%;
-            clip-path: polygon(0 0, 100% 0, 100% 100%);
+            width: 100%;
+            height: 100%;
+            transform-origin: center center;
+            overflow: hidden;
             display: flex;
             align-items: center;
-            justify-content: flex-start;
-            padding-left: 20px;
+            justify-content: center;
             font-weight: bold;
             color: white;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-            overflow: hidden;
         }
         
         .wheel-segment span {
+            position: absolute;
+            left: 65%;
+            top: 50%;
             transform-origin: center center;
-            display: block;
-            text-align: left;
             white-space: nowrap;
-            font-size: clamp(0.6em, 1.2vw, 0.9em);
+            font-size: clamp(0.7em, 1.2vw, 0.95em);
             max-width: 120px;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            overflow: visible;
+            text-align: center;
+            line-height: 1;
         }
 
         .wheel-pointer {
             position: absolute;
-            top: -20px;
+            top: -30px;
             left: 50%;
             transform: translateX(-50%);
             width: 0;
@@ -1943,6 +1978,7 @@ async function handleWinnerWheel(url, env) {
             border-right: 20px solid transparent;
             border-top: 40px solid #ff6b35;
             z-index: 10;
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
         }
 
         .spin-btn {
@@ -2012,6 +2048,27 @@ async function handleWinnerWheel(url, env) {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+        
+        .participant-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .participant-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        
+        .participant-list::-webkit-scrollbar-thumb {
+            background: #ff6b35;
+            border-radius: 4px;
+        }
+        
+        .participant-list::-webkit-scrollbar-thumb:hover {
+            background: #e55a2b;
         }
 
         .participant {
@@ -2031,9 +2088,11 @@ async function handleWinnerWheel(url, env) {
             </div>
 
             ${correctSubmissions.length > 0 ? `
-                <div class="wheel-pointer"></div>
-                <div class="wheel" id="wheel">
-                    <!-- Wheel segments will be generated by JavaScript -->
+                <div style="position: relative;">
+                    <div class="wheel-pointer"></div>
+                    <div class="wheel" id="wheel">
+                        <!-- Wheel segments will be generated by JavaScript -->
+                    </div>
                 </div>
 
                 <button class="spin-btn" id="spinBtn" onclick="spinWheel()">🎲 SPIN THE WHEEL!</button>
@@ -2079,18 +2138,34 @@ async function handleWinnerWheel(url, env) {
                 const segment = document.createElement('div');
                 segment.className = 'wheel-segment';
                 segment.style.backgroundColor = colors[index % colors.length];
-                segment.style.transform = 'rotate(' + (index * segmentAngle) + 'deg)';
+                // Create proper triangular segment using clip-path
+                const startAngle = index * segmentAngle;
+                const endAngle = (index + 1) * segmentAngle;
+                
+                // Convert angles to clip-path coordinates
+                const x1 = 50 + 50 * Math.cos((startAngle - 90) * Math.PI / 180);
+                const y1 = 50 + 50 * Math.sin((startAngle - 90) * Math.PI / 180);
+                const x2 = 50 + 50 * Math.cos((endAngle - 90) * Math.PI / 180);
+                const y2 = 50 + 50 * Math.sin((endAngle - 90) * Math.PI / 180);
+                
+                segment.style.clipPath = 'polygon(50% 50%, ' + x1 + '% ' + y1 + '%, ' + x2 + '% ' + y2 + '%)';
+                segment.style.transform = 'rotate(0deg)';
                 
                 // Better text handling for names
                 const displayName = participant.name.length > 15 ? 
                     participant.name.split(' ')[0] : 
                     participant.name;
                 
-                // Calculate text rotation to point toward center
-                const textRotation = segmentAngle > 180 ? (segmentAngle / 2) + 180 : (segmentAngle / 2);
-                const textAlign = segmentAngle > 180 ? 'right' : 'left';
+                // Calculate text position and rotation
+                const midAngle = startAngle + (segmentAngle / 2);
+                const textRotation = (midAngle > 90 && midAngle < 270 ? midAngle + 180 : midAngle) + 90;
                 
-                segment.innerHTML = '<span style="transform: rotate(' + textRotation + 'deg); text-align: ' + textAlign + ';">' + displayName + '</span>';
+                // Position text at optimal distance from center
+                const textDistance = 35; // percentage from center
+                const textX = 50 + textDistance * Math.cos((midAngle - 90) * Math.PI / 180);
+                const textY = 50 + textDistance * Math.sin((midAngle - 90) * Math.PI / 180);
+                
+                segment.innerHTML = '<span style="left: ' + textX + '%; top: ' + textY + '%; transform: translate(-50%, -50%) rotate(' + textRotation + 'deg);">' + displayName + '</span>';
                 wheel.appendChild(segment);
             });
         }
@@ -2118,24 +2193,38 @@ async function handleWinnerWheel(url, env) {
             // Add spinning animation with proper easing
             wheel.style.transition = 'transform 3s cubic-bezier(0.17, 0.67, 0.12, 0.99)';
             
-            // Calculate final position - ensure it spins multiple times and lands on a winner
-            const segmentAngle = 360 / participants.length;
-            const winnerIndex = Math.floor(Math.random() * participants.length);
+            // Generate random spin - let physics determine the winner
             const baseSpins = 8 + Math.random() * 4; // 8-12 full rotations for dramatic effect
-            const targetAngle = (winnerIndex * segmentAngle) + (segmentAngle / 2); // Center of winner segment
-            const finalRotation = (baseSpins * 360) + (360 - targetAngle); // Subtract because wheel spins clockwise but we measure counter-clockwise
+            const randomAngle = Math.random() * 360; // Random final position
+            const finalRotation = (baseSpins * 360) + randomAngle;
             
             // Apply the spin
             wheel.style.transform = 'rotate(' + finalRotation + 'deg)';
 
-            // Show winner after 3 seconds
+            // Show winner after 3 seconds - determine winner based on final position
             setTimeout(() => {
+                // Calculate which segment is at 12 o'clock position (where arrow points)
+                const segmentAngle = 360 / participants.length;
+                // Normalize the final rotation to 0-360 degrees
+                const normalizedRotation = finalRotation % 360;
+                // Find which segment is at the 12 o'clock position (0 degrees)
+                // Since segments are created starting from index 0 at 0 degrees going clockwise,
+                // we need to account for the wheel rotation
+                const segmentAt12OClock = Math.floor((360 - normalizedRotation) / segmentAngle);
+                const winnerIndex = segmentAt12OClock % participants.length;
+                
                 const winner = participants[winnerIndex];
                 selectedWinner = winner;
+                
+                // Get the winner's segment color
+                const colors = ['#ff6b35', '#f7931e', '#00b894', '#00cec9', '#6c5ce7', '#a29bfe', '#e17055', '#fd79a8', '#74b9ff', '#55a3ff'];
+                const winnerColor = colors[winnerIndex % colors.length];
 
                 document.getElementById('winnerText').innerHTML = 
                     '🏆 WINNER: ' + winner.name + '<br><small>' + winner.email + '</small>';
-                document.getElementById('winnerDisplay').style.display = 'block';
+                const winnerDisplay = document.getElementById('winnerDisplay');
+                winnerDisplay.style.background = winnerColor;
+                winnerDisplay.style.display = 'block';
                 document.getElementById('endContestBtn').style.display = 'inline-block';
 
                 isSpinning = false;
