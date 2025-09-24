@@ -1,0 +1,17 @@
+name = "cloudflare-booth-puzzle"
+main = "src/worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+
+[[kv_namespaces]]
+binding = "PUZZLE_KV"
+id = "5253fdbc00e848d0b4690a486b8ae860"
+
+[ai]
+binding = "AI"
+
+[build]
+command = ""
