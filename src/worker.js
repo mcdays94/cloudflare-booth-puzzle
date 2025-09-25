@@ -1,3 +1,12 @@
+// Helper function to get Service Token headers for internal API calls
+function getServiceTokenHeaders(env) {
+  return {
+    'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID,
+    'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET,
+    'Content-Type': 'application/json'
+  };
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -41,7 +50,8 @@ export default {
       if (url.pathname === '/api/end-contest') {
         return handleEndContest(request, env);
       }
-      
+
+
       if (path.startsWith('/api/')) {
         return handleAPI(request, env, corsHeaders);
       } else {
@@ -217,7 +227,7 @@ async function handlePuzzleDisplay(url, env) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crack the Code - Cloudflare Booth Puzzle</title>
+    <title>${conference.name} - Crack the Code</title>
     <link rel="icon" type="image/x-icon" href="https://r2.lusostreams.com/puzzleicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -681,7 +691,7 @@ async function handlePuzzleDisplay(url, env) {
             if (isNavigating) return; // Prevent multiple navigation attempts
             
             try {
-                const response = await fetch('/api/conferences/${conferenceId}/display-mode');
+                const response = await fetch('/api/display-mode/${conferenceId}');
                 if (response.ok) {
                     const data = await response.json();
                     if (data.mode === 'winner') {
@@ -853,7 +863,7 @@ async function handleAPI(request, env, corsHeaders) {
       return new Response('Contest has ended', { status: 400, headers: corsHeaders });
     }
     
-    const isCorrect = answer === conferenceInfo.puzzle.solution.join('');
+    const isCorrect = JSON.stringify(answer) === JSON.stringify(conferenceInfo.puzzle.solution);
     
     const submission = {
       id: crypto.randomUUID(),
@@ -894,6 +904,62 @@ async function handleAPI(request, env, corsHeaders) {
     return new Response(JSON.stringify({ mode: mode || 'puzzle' }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
+  }
+
+  // Public proxy endpoint for display-mode (no authentication required)
+  if (path.match(/^\/api\/display-mode\/([^\/]+)$/) && method === 'GET') {
+    const conferenceId = path.match(/^\/api\/display-mode\/([^\/]+)$/)[1];
+    
+    try {
+      // Read directly from KV store
+      const mode = await env.PUZZLE_KV.get('display-mode:' + conferenceId);
+      return new Response(JSON.stringify({ mode: mode || 'puzzle' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error('Error fetching display mode:', error);
+      return new Response(JSON.stringify({ mode: 'puzzle' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
+  // Admin proxy endpoint for switch-to-winner (public for reliability)
+  if (path.match(/^\/api\/admin\/([^\/]+)\/switch-to-winner$/) && method === 'POST') {
+    const conferenceId = path.match(/^\/api\/admin\/([^\/]+)\/switch-to-winner$/)[1];
+    
+    try {
+      // Directly update KV store instead of making internal HTTP call
+      await env.PUZZLE_KV.put('display-mode:' + conferenceId, 'winner');
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error('Error switching to winner:', error);
+      return new Response(JSON.stringify({ success: false }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
+  // Admin proxy endpoint for switch-to-puzzle (public for reliability)
+  if (path.match(/^\/api\/admin\/([^\/]+)\/switch-to-puzzle$/) && method === 'POST') {
+    const conferenceId = path.match(/^\/api\/admin\/([^\/]+)\/switch-to-puzzle$/)[1];
+    
+    try {
+      // Directly delete from KV store instead of making internal HTTP call
+      await env.PUZZLE_KV.delete('display-mode:' + conferenceId);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error('Error switching to puzzle:', error);
+      return new Response(JSON.stringify({ success: false }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
   }
 
   if (path.match(/^\/api\/conferences\/([^\/]+)\/submission-count$/) && method === 'GET') {
@@ -1237,6 +1303,7 @@ async function handleAdminUI(env) {
             min-width: 80px;
             font-size: 0.85em;
             padding: 8px 12px;
+            transition: all 0.3s ease;
         }
         .current-puzzle {
             background: #e8f4f8;
@@ -1267,9 +1334,9 @@ async function handleAdminUI(env) {
                 <h2>Create New Conference</h2>
                 <div class="form-group">
                     <label for="newConferenceName">Conference Name:</label>
-                    <input type="text" id="newConferenceName" placeholder="" data-placeholder-template="e.g., RSA Conference {year}">
+                    <input type="text" id="newConferenceName" placeholder="Conference Name" data-placeholder-template="e.g., RSA Conference {year}">
+                    <button onclick="createConference()">Create Conference</button>
                 </div>
-                <button onclick="createConference()">+ Create Conference</button>
             </div>
         </div>
 
@@ -1298,10 +1365,24 @@ async function handleAdminUI(env) {
     <script>
         let conferences = [];
 
+        // Service Token credentials injected server-side
+        const SERVICE_TOKEN_ID = '${env.CF_ACCESS_CLIENT_ID}';
+        const SERVICE_TOKEN_SECRET = '${env.CF_ACCESS_CLIENT_SECRET}';
+        
+        function getServiceHeaders() {
+            return {
+                'CF-Access-Client-Id': SERVICE_TOKEN_ID,
+                'CF-Access-Client-Secret': SERVICE_TOKEN_SECRET,
+                'Content-Type': 'application/json'
+            };
+        }
+
         async function loadConferences() {
             try {
                 console.log('Loading conferences...');
-                const response = await fetch('/api/conferences');
+                const response = await fetch('https://puzzle.lusostreams.com/api/conferences', {
+                    headers: getServiceHeaders()
+                });
                 console.log('Response status:', response.status);
                 
                 if (!response.ok) {
@@ -1384,7 +1465,7 @@ async function handleAdminUI(env) {
             // Get display mode for this conference
             let displayMode = null;
             try {
-                const response = await fetch('/api/conferences/' + conf.id + '/display-mode');
+                const response = await fetch('/api/display-mode/' + conf.id);
                 if (response.ok) {
                     const data = await response.json();
                     displayMode = data.mode;
@@ -1402,7 +1483,11 @@ async function handleAdminUI(env) {
                 '<p><strong>Created:</strong> ' + new Date(conf.created).toLocaleDateString() + '</p>' +
                 '<p><strong>Submissions:</strong> ' + submissionCount + '</p>' +
                 '<p><strong>✅ %:</strong> ' + correctRatio + '%</p>' +
-                (displayMode === 'winner' ? '<p><strong>Current View:</strong> Winner Wheel</p>' : '') +
+                '<p><strong>Currently Displaying:</strong> ' + 
+                    (displayMode === 'winner' ? '🎡 Winner Wheel' : 
+                     displayMode === 'ended' ? '🏆 Contest Ended' : 
+                     '🧩 Puzzle Screen') + 
+                '</p>' +
                 winnerInfo +
                 '<div class="current-puzzle">' +
                     '<h4>Solution:</h4>' +
@@ -1439,9 +1524,9 @@ async function handleAdminUI(env) {
             }
 
             try {
-                const response = await fetch('/api/conferences', {
+                const response = await fetch('https://puzzle.lusostreams.com/api/conferences', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getServiceHeaders(),
                     body: JSON.stringify({ name })
                 });
 
@@ -1468,8 +1553,9 @@ async function handleAdminUI(env) {
             }
 
             try {
-                const response = await fetch('/api/conferences/' + conferenceId + '/reshuffle', {
-                    method: 'POST'
+                const response = await fetch('https://puzzle.lusostreams.com/api/conferences/' + conferenceId + '/reshuffle', {
+                    method: 'POST',
+                    headers: getServiceHeaders()
                 });
 
                 if (response.ok) {
@@ -1489,8 +1575,9 @@ async function handleAdminUI(env) {
             }
 
             try {
-                const response = await fetch('/api/conferences/' + conferenceId + '/finish', {
-                    method: 'POST'
+                const response = await fetch('https://puzzle.lusostreams.com/api/conferences/' + conferenceId + '/finish', {
+                    method: 'POST',
+                    headers: getServiceHeaders()
                 });
 
                 if (response.ok) {
@@ -1510,9 +1597,23 @@ async function handleAdminUI(env) {
 
         async function copyPuzzleUrl(conferenceId) {
             const puzzleUrl = window.location.origin + '/puzzle?conference=' + conferenceId;
+            const button = event.target;
+            const originalText = button.innerHTML;
+            
             try {
                 await navigator.clipboard.writeText(puzzleUrl);
-                alert('✅ Puzzle URL copied to clipboard!\\n\\n' + puzzleUrl);
+                
+                // Animate button to show success
+                button.innerHTML = '✅ Copied!';
+                button.style.background = '#00b894';
+                button.style.transform = 'scale(0.95)';
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.style.background = '';
+                    button.style.transform = '';
+                }, 2000);
+                
             } catch (err) {
                 // Fallback for older browsers
                 const textArea = document.createElement('textarea');
@@ -1521,7 +1622,17 @@ async function handleAdminUI(env) {
                 textArea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
-                alert('✅ Puzzle URL copied to clipboard!\\n\\n' + puzzleUrl);
+                
+                // Animate button to show success
+                button.innerHTML = '✅ Copied!';
+                button.style.background = '#00b894';
+                button.style.transform = 'scale(0.95)';
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.style.background = '';
+                    button.style.transform = '';
+                }, 2000);
             }
         }
 
@@ -1531,24 +1642,38 @@ async function handleAdminUI(env) {
 
         function switchToWinner(conferenceId) {
             if (confirm('This will switch the puzzle display to the winner wheel. Continue?')) {
-                // Store the switch state in KV
-                fetch('/api/conferences/' + conferenceId + '/switch-to-winner', {
+                // Use public proxy endpoint
+                fetch('/api/admin/' + conferenceId + '/switch-to-winner', {
                     method: 'POST'
-                }).then(() => {
-                    alert('Puzzle display switched to winner wheel!');
-                    location.reload(); // Refresh to update button states
+                }).then(response => {
+                    if (response.ok) {
+                        alert('Puzzle display switched to winner wheel!');
+                        loadConferences(); // Refresh conference list to update display status
+                    } else {
+                        alert('Failed to switch display mode. Please try again.');
+                    }
+                }).catch(error => {
+                    console.error('Error switching to winner:', error);
+                    alert('Error switching display mode. Please try again.');
                 });
             }
         }
 
         function switchToPuzzle(conferenceId) {
             if (confirm('This will switch back to the puzzle display. Continue?')) {
-                // Remove the switch state from KV
-                fetch('/api/conferences/' + conferenceId + '/switch-to-puzzle', {
+                // Use public proxy endpoint
+                fetch('/api/admin/' + conferenceId + '/switch-to-puzzle', {
                     method: 'POST'
-                }).then(() => {
-                    alert('Display switched back to puzzle screen!');
-                    location.reload(); // Refresh to update button states
+                }).then(response => {
+                    if (response.ok) {
+                        alert('Display switched back to puzzle screen!');
+                        loadConferences(); // Refresh conference list to update display status
+                    } else {
+                        alert('Failed to switch display mode. Please try again.');
+                    }
+                }).catch(error => {
+                    console.error('Error switching to puzzle:', error);
+                    alert('Error switching display mode. Please try again.');
                 });
             }
         }
@@ -1559,8 +1684,9 @@ async function handleAdminUI(env) {
 
         function reopenContest(conferenceId) {
             if (confirm('This will reopen the contest and clear the winner. The contest will become active again. Continue?')) {
-                fetch('/api/conferences/' + conferenceId + '/reopen', {
-                    method: 'POST'
+                fetch('https://puzzle.lusostreams.com/api/conferences/' + conferenceId + '/reopen', {
+                    method: 'POST',
+                    headers: getServiceHeaders()
                 }).then(response => {
                     if (response.ok) {
                         alert('Contest has been reopened successfully!');
@@ -1711,7 +1837,7 @@ async function handleSubmitForm(url, env) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Submit Your Answer - Cloudflare Booth</title>
+    <title>${conferenceData.name} - Submit Answer</title>
     <link rel="icon" type="image/x-icon" href="https://r2.lusostreams.com/puzzleicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1921,7 +2047,7 @@ async function handleSubmitForm(url, env) {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        conferenceId: '${conferenceId}',
+                        conference: '${conferenceId}',
                         answer,
                         name,
                         email,
@@ -1990,7 +2116,7 @@ async function handleWinnerWheel(url, env) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Winner Selection - ${conferenceData.name}</title>
+    <title>${conferenceData.name} - Winner Selection</title>
     <link rel="icon" type="image/x-icon" href="https://r2.lusostreams.com/puzzleicon.ico">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -2213,6 +2339,26 @@ async function handleWinnerWheel(url, env) {
             transform: translateY(-2px);
         }
 
+        .back-to-puzzle-btn {
+            background: transparent;
+            color: #74b9ff;
+            border: 1px solid #74b9ff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+            opacity: 0.7;
+        }
+
+        .back-to-puzzle-btn:hover {
+            background: #74b9ff;
+            color: white;
+            opacity: 1;
+            transform: translateY(-1px);
+        }
+
         .participants {
             background: #f8f9fa;
             padding: 20px;
@@ -2300,6 +2446,11 @@ async function handleWinnerWheel(url, env) {
                     ).join('')}
                 </div>
             </div>
+        </div>
+        
+        <!-- Discrete back to puzzle button at bottom -->
+        <div style="text-align: center; margin: 30px 0;">
+            <button class="back-to-puzzle-btn" onclick="backToPuzzle()">← Back to Puzzle Screen</button>
         </div>
     </div>
 
@@ -2425,10 +2576,12 @@ async function handleWinnerWheel(url, env) {
             }
 
             try {
-                const response = await fetch('/api/end-contest', {
+                const response = await fetch('https://puzzle.lusostreams.com/api/end-contest', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'CF-Access-Client-Id': '${env.CF_ACCESS_CLIENT_ID}',
+                        'CF-Access-Client-Secret': '${env.CF_ACCESS_CLIENT_SECRET}'
                     },
                     body: JSON.stringify({
                         conferenceId: '${conferenceId}',
@@ -2460,33 +2613,31 @@ async function handleWinnerWheel(url, env) {
             createWheel();
         }
         
-        // Auto-refresh to check for display mode changes (e.g., switch back to puzzle)
-        let displayModeInterval;
-        let isNavigating = false;
-        
-        displayModeInterval = setInterval(async function() {
-            if (isNavigating) return; // Prevent multiple navigation attempts
-            
-            try {
-                const response = await fetch('/api/conferences/${conferenceId}/display-mode');
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.mode === 'ended') {
-                        // Contest ended, stop auto-refresh and stay on winner screen
-                        clearInterval(displayModeInterval);
-                        console.log('Contest ended, staying on winner screen');
-                    } else if (data.mode !== 'winner') {
-                        // Switch back to puzzle display
-                        isNavigating = true;
-                        clearInterval(displayModeInterval);
-                        console.log('Switching back to puzzle...');
+        // Manual navigation function for back to puzzle
+        async function backToPuzzle() {
+            if (confirm('Switch back to puzzle display?')) {
+                try {
+                    // First, switch the display mode back to puzzle
+                    const response = await fetch('https://puzzle.lusostreams.com/api/conferences/${conferenceId}/switch-to-puzzle', {
+                        method: 'POST',
+                        headers: {
+                            'CF-Access-Client-Id': '${env.CF_ACCESS_CLIENT_ID}',
+                            'CF-Access-Client-Secret': '${env.CF_ACCESS_CLIENT_SECRET}'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        // Then navigate to the puzzle page
                         window.location.href = '/puzzle?conference=${conferenceId}';
+                    } else {
+                        alert('Failed to switch display mode. Please try again.');
                     }
+                } catch (error) {
+                    console.error('Error switching to puzzle:', error);
+                    alert('Error switching display mode. Please try again.');
                 }
-            } catch (error) {
-                console.log('Display mode check failed:', error);
             }
-        }, 3000); // Check every 3 seconds
+        }
     </script>
 </body>
 </html>`;

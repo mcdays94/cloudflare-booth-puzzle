@@ -111,23 +111,29 @@ wrangler dev
 
 ## API Endpoints
 
-### Public Endpoints
-- `GET /` - Puzzle display (default conference)
-- `GET /puzzle?conference=ID` - Puzzle display for specific conference
-- `GET /submit?conference=ID` - Submission form for specific conference
-- `GET /winner?conference=ID` - Winner wheel for specific conference
+### Public Endpoints (No Authentication)
+- `GET /` - Main puzzle display
+- `GET /puzzle` - Puzzle display with conference parameter  
+- `GET /submit` - Submission form
+- `POST /api/submit` - Submit puzzle answer (Turnstile protected)
+- `GET /winner` - Winner wheel display
+- `GET /api/display-mode/{id}` - Get current display mode (proxy)
+- `POST /api/admin/{id}/switch-to-winner` - Admin proxy for display switching (public for reliability)
+- `POST /api/admin/{id}/switch-to-puzzle` - Admin proxy for display switching (public for reliability)
 
-### Admin Endpoints
+### Protected Endpoints (Cloudflare Access + Service Tokens)
 - `GET /admin` - Admin interface
 - `GET /api/conferences` - List all conferences
 - `POST /api/conferences` - Create new conference
 - `POST /api/conferences/{id}/reshuffle` - Generate new puzzle
 - `POST /api/conferences/{id}/finish` - End contest
 - `POST /api/conferences/{id}/switch-to-winner` - Switch display to winner wheel
-- `POST /api/conferences/{id}/switch-to-puzzle` - Switch display back to puzzle
-- `GET /api/conferences/{id}/display-mode` - Get current display mode
-- `POST /api/submit` - Submit puzzle answer (with Turnstile)
-- `POST /api/test-submit` - Submit puzzle answer (bypass Turnstile for testing)
+- `POST /api/conferences/{id}/switch-to-puzzle` - Switch display to puzzle
+- `GET /api/conferences/{id}/display-mode` - Get display mode
+- `GET /api/conferences/{id}/submission-count` - Get submission statistics
+- `POST /api/conferences/{id}/reopen` - Reopen finished contest
+- `POST /api/end-contest` - End contest with winner selection
+- `GET /api/submissions` - View submissions
 
 ## Puzzle Logic
 

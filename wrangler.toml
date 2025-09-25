@@ -15,3 +15,7 @@ binding = "AI"
 
 [build]
 command = ""
+
+routes = [
+  { pattern = "puzzle.lusostreams.com", custom_domain = true }
+]
