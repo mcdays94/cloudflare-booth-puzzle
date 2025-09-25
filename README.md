@@ -131,13 +131,14 @@ wrangler dev
 
 ## Puzzle Logic
 
-The system generates number sequence puzzles with the following clue types:
-1. **All correct, one correctly placed**: All digits are in the solution but only one is in the right position
-2. **Two correct, wrongly placed**: Two digits are in the solution but both are in wrong positions
-3. **One correct, well placed**: One digit is correct and in the right position
-4. **One correct, wrongly placed**: One digit is in the solution but in the wrong position
+The system generates number sequence puzzles with exactly **5 clues** of the following types:
+1. **One number is correct but wrongly placed**: One digit from the solution appears in the clue but in the wrong position
+2. **One number is correct but wrongly placed**: Another digit from the solution appears in the clue but in the wrong position  
+3. **Two numbers are correct and well placed**: Two digits from the solution appear in their correct positions
+4. **Two numbers are correct but wrongly placed**: Two digits from the solution appear in the clue but both are in wrong positions
+5. **Nothing is correct**: None of the digits in this clue appear in the solution
 
-Each puzzle has a unique 3-digit solution that can be determined by analyzing all clues.
+Each puzzle has a unique 3-digit solution with no repeated digits that can be determined by analyzing all 5 clues together.
 
 ## Data Storage
 
