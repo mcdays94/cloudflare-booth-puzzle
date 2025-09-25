@@ -8,28 +8,36 @@ A comprehensive Cloudflare Workers application for managing interactive puzzles 
 ## Features
 
 ### 🧩 Puzzle Display
-- Beautiful, responsive puzzle interface matching Cloudflare branding
+- Beautiful, responsive puzzle interface optimized for vertical displays
 - QR code generation for easy mobile access
 - Real-time puzzle updates and reshuffling
+- Auto-refresh functionality to switch between puzzle and winner wheel modes
 - Supports multiple conferences simultaneously
+- Optimized for audience viewing on large vertical monitors
 
 ### 👨‍💼 Admin Interface
+- Horizontal layout optimized for laptop screens
 - Conference management (create, activate, finish)
 - Puzzle reshuffling with new solutions
-- Real-time monitoring of submissions
+- Real-time monitoring of submissions and statistics
 - Winner wheel for raffle selection
+- Collapsible conference history section
+- One-click display mode switching (puzzle ↔ winner wheel)
 
 ### 📱 Mobile Submission
-- Mobile-optimized submission form
+- Mobile-optimized submission form with Turnstile CAPTCHA
 - Auto-advancing digit inputs
 - Real-time validation and feedback
 - Secure data storage in Cloudflare KV
+- Test submission endpoint for bulk data generation
 
 ### 🎡 Winner Selection
-- Animated spinning wheel interface
-- Automatic filtering of correct submissions
-- Visual participant display
-- Randomized winner selection
+- Full-screen animated spinning wheel interface
+- Automatic filtering of correct submissions only
+- Visual participant display with scrollable list
+- Randomized winner selection with smooth animations
+- Contest ending functionality with winner preservation
+- Auto-refresh to sync with admin display mode changes
 
 ## Architecture
 
@@ -95,10 +103,11 @@ wrangler dev
 4. Submit and receive confirmation
 
 ### For Prize Drawing
-1. In the admin interface, click "Finish Contest" to stop new submissions
-2. Click "Winner Wheel" to open the selection interface
+1. In the admin interface, click "Spin the Wheel!" to automatically switch the display to winner mode
+2. The puzzle display will auto-refresh and show the spinning wheel (within 3 seconds)
 3. Click "SPIN THE WHEEL!" to randomly select a winner
-4. The winner's name and email will be displayed
+4. Click "END CONTEST & SAVE WINNER" to finalize and save the winner
+5. The display will show the final winner announcement (no redirect to admin)
 
 ## API Endpoints
 
@@ -114,7 +123,11 @@ wrangler dev
 - `POST /api/conferences` - Create new conference
 - `POST /api/conferences/{id}/reshuffle` - Generate new puzzle
 - `POST /api/conferences/{id}/finish` - End contest
-- `POST /api/submit` - Submit puzzle answer
+- `POST /api/conferences/{id}/switch-to-winner` - Switch display to winner wheel
+- `POST /api/conferences/{id}/switch-to-puzzle` - Switch display back to puzzle
+- `GET /api/conferences/{id}/display-mode` - Get current display mode
+- `POST /api/submit` - Submit puzzle answer (with Turnstile)
+- `POST /api/test-submit` - Submit puzzle answer (bypass Turnstile for testing)
 
 ## Puzzle Logic
 

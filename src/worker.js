@@ -497,11 +497,11 @@ async function handlePuzzleDisplay(url, env) {
             min-height: 90px;
         }
 
-        .clue-row:nth-child(1) { border-left: 5px solid #6c5ce7; }
-        .clue-row:nth-child(2) { border-left: 5px solid #a29bfe; }
-        .clue-row:nth-child(3) { border-left: 5px solid #00b894; }
-        .clue-row:nth-child(4) { border-left: 5px solid #00cec9; }
-        .clue-row:nth-child(5) { border-left: 5px solid #e17055; }
+        .clue-row:nth-child(2) { border-left: 5px solid #6c5ce7; }
+        .clue-row:nth-child(3) { border-left: 5px solid #a29bfe; }
+        .clue-row:nth-child(4) { border-left: 5px solid #00b894; }
+        .clue-row:nth-child(5) { border-left: 5px solid #00cec9; }
+        .clue-row:nth-child(6) { border-left: 5px solid #74b9ff; }
 
         .number-boxes {
             display: flex;
@@ -524,11 +524,11 @@ async function handlePuzzleDisplay(url, env) {
             border: 1px solid #ddd;
         }
 
-        .clue-row:nth-child(1) .number-box { color: #6c5ce7; border-color: #6c5ce7; }
-        .clue-row:nth-child(2) .number-box { color: #a29bfe; border-color: #a29bfe; }
-        .clue-row:nth-child(3) .number-box { color: #00b894; border-color: #00b894; }
-        .clue-row:nth-child(4) .number-box { color: #00cec9; border-color: #00cec9; }
-        .clue-row:nth-child(5) .number-box { color: #e17055; border-color: #e17055; }
+        .clue-row:nth-child(2) .number-box { color: #6c5ce7; border-color: #6c5ce7; }
+        .clue-row:nth-child(3) .number-box { color: #a29bfe; border-color: #a29bfe; }
+        .clue-row:nth-child(4) .number-box { color: #00b894; border-color: #00b894; }
+        .clue-row:nth-child(5) .number-box { color: #00cec9; border-color: #00cec9; }
+        .clue-row:nth-child(6) .number-box { color: #74b9ff; border-color: #74b9ff; }
 
         .clue-text {
             flex: 1;
@@ -672,6 +672,30 @@ async function handlePuzzleDisplay(url, env) {
         
         // Generate QR code immediately
         generateQR();
+        
+        // Auto-refresh to check for display mode changes (e.g., switch to winner wheel)
+        let displayModeInterval;
+        let isNavigating = false;
+        
+        displayModeInterval = setInterval(async function() {
+            if (isNavigating) return; // Prevent multiple navigation attempts
+            
+            try {
+                const response = await fetch('/api/conferences/${conferenceId}/display-mode');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.mode === 'winner') {
+                        // Switch to winner wheel display
+                        isNavigating = true;
+                        clearInterval(displayModeInterval);
+                        console.log('Switching to winner wheel...');
+                        window.location.href = '/winner?conference=${conferenceId}';
+                    }
+                }
+            } catch (error) {
+                console.log('Display mode check failed:', error);
+            }
+        }, 3000); // Check every 3 seconds
     </script>
 </body>
 </html>`;
@@ -706,6 +730,18 @@ async function handleAPI(request, env, corsHeaders) {
     try {
       const body = await request.json();
       const conferenceId = body.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/--+/g, '-');
+      
+      // Check if conference with this ID already exists
+      const existingConference = await env.PUZZLE_KV.get('conference:' + conferenceId);
+      if (existingConference) {
+        return new Response(JSON.stringify({ 
+          error: 'A conference with this name already exists. Please choose a different name.' 
+        }), {
+          status: 409, // Conflict
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      
       const puzzle = generatePuzzle();
       
       const conference = {
@@ -1033,38 +1069,85 @@ async function handleAdminUI(env) {
             font-family: Arial, sans-serif;
             background: linear-gradient(135deg, #2d3436, #636e72);
             min-height: 100vh;
-            padding: 20px;
+            padding: 15px;
+            overflow-x: auto;
         }
         .admin-container {
-            max-width: 1200px;
+            max-width: 1600px;
             margin: 0 auto;
             background: white;
             border-radius: 15px;
-            padding: 30px;
+            padding: 20px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 20px;
+            min-height: calc(100vh - 30px);
         }
         .header {
+            grid-column: 1 / -1;
             text-align: center;
-            margin-bottom: 40px;
-            padding-bottom: 20px;
+            padding: 15px 0;
             border-bottom: 2px solid #f1f2f6;
+            margin-bottom: 0;
         }
         .header h1 {
             color: #2d3436;
-            font-size: 2.5em;
-            margin-bottom: 10px;
+            font-size: 2em;
+            margin-bottom: 5px;
+        }
+        .header p {
+            color: #636e72;
+            font-size: 1em;
+        }
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .main-content {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 150px);
         }
         .section {
-            margin: 30px 0;
-            padding: 25px;
+            padding: 20px;
             background: #f8f9fa;
             border-radius: 10px;
             border-left: 5px solid #ff6b35;
         }
         .section h2 {
             color: #2d3436;
-            margin-bottom: 20px;
-            font-size: 1.5em;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        .collapsible-header {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 0;
+            user-select: none;
+        }
+        .collapsible-header:hover {
+            color: #ff6b35;
+        }
+        .collapse-icon {
+            transition: transform 0.3s ease;
+            font-size: 1.2em;
+        }
+        .collapse-icon.collapsed {
+            transform: rotate(-90deg);
+        }
+        .collapsible-content {
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        .collapsible-content.collapsed {
+            max-height: 0;
         }
         .form-group {
             margin: 15px 0;
@@ -1107,7 +1190,7 @@ async function handleAdminUI(env) {
         }
         .conference-list {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
             gap: 20px;
             margin-top: 20px;
         }
@@ -1179,26 +1262,35 @@ async function handleAdminUI(env) {
             <p>Manage conferences, puzzles, and winners</p>
         </div>
 
-        <div class="section">
-            <h2>Create New Conference</h2>
-            <div class="form-group">
-                <label for="newConferenceName">Conference Name:</label>
-                <input type="text" id="newConferenceName" placeholder="" data-placeholder-template="e.g., RSA Conference {year}">
-            </div>
-            <button onclick="createConference()">+ Create Conference</button>
-        </div>
-
-        <div class="section">
-            <h2>Active Conferences</h2>
-            <div id="conferencesList" class="conference-list">
-                Loading conferences...
+        <div class="sidebar">
+            <div class="section">
+                <h2>Create New Conference</h2>
+                <div class="form-group">
+                    <label for="newConferenceName">Conference Name:</label>
+                    <input type="text" id="newConferenceName" placeholder="" data-placeholder-template="e.g., RSA Conference {year}">
+                </div>
+                <button onclick="createConference()">+ Create Conference</button>
             </div>
         </div>
 
-        <div class="section">
-            <h2>Conference History</h2>
-            <div id="historyList" class="conference-list">
-                Loading history...
+        <div class="main-content">
+            <div class="section">
+                <h2>Active Conferences</h2>
+                <div id="conferencesList" class="conference-list">
+                    Loading conferences...
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="collapsible-header" onclick="toggleHistorySection()">
+                    <h2 style="margin: 0;">Conference History</h2>
+                    <span class="collapse-icon collapsed">▼</span>
+                </div>
+                <div id="historyContent" class="collapsible-content collapsed">
+                    <div id="historyList" class="conference-list">
+                        Loading history...
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1253,6 +1345,12 @@ async function handleAdminUI(env) {
                 });
                 const historyCards = await Promise.all(sortedInactiveConferences.map(conf => renderConferenceCard(conf, false)));
                 historyContainer.innerHTML = historyCards.join('');
+            }
+            
+            // Update max-height for collapsible content if it's expanded
+            const historyContent = document.getElementById('historyContent');
+            if (historyContent && !historyContent.classList.contains('collapsed')) {
+                historyContent.style.maxHeight = historyContent.scrollHeight + 'px';
             }
         }
 
@@ -1315,6 +1413,7 @@ async function handleAdminUI(env) {
                 '</div>' +
                 '<div class="button-group">' +
                     '<button data-action="viewPuzzle" data-conference="' + conf.id + '" class="btn-secondary action-btn">View Puzzle</button>' +
+                    '<button data-action="copyPuzzleUrl" data-conference="' + conf.id + '" class="btn-secondary action-btn" title="Copy puzzle URL to clipboard">📋 Copy Puzzle URL</button>' +
                     (isActive ? 
                         '<button data-action="reshufflePuzzle" data-conference="' + conf.id + '" class="action-btn">Reshuffle</button>' +
                         '<button data-action="viewSubmissions" data-conference="' + conf.id + '" class="btn-secondary action-btn">View<br>Submissions</button>' +
@@ -1347,17 +1446,19 @@ async function handleAdminUI(env) {
                 });
 
                 if (response.ok) {
+                    const conference = await response.json();
+                    alert('Conference created successfully!\\nID: ' + conference.id);
                     document.getElementById('newConferenceName').value = '';
-                    loadConferences();
-                    alert('Conference created successfully!');
+                    loadConferences(); // Refresh the list
+                } else if (response.status === 409) {
+                    const errorData = await response.json();
+                    alert('❌ ' + errorData.error);
                 } else {
-                    const errorText = await response.text();
-                    console.error('Server error:', errorText);
-                    alert('Error creating conference: ' + errorText);
+                    alert('Error creating conference. Please try again.');
                 }
             } catch (error) {
                 console.error('Error creating conference:', error);
-                alert('Network error creating conference: ' + error.message);
+                alert('Error creating conference. Please try again.');
             }
         }
 
@@ -1407,6 +1508,23 @@ async function handleAdminUI(env) {
             window.open('/puzzle?conference=' + conferenceId, '_blank');
         }
 
+        async function copyPuzzleUrl(conferenceId) {
+            const puzzleUrl = window.location.origin + '/puzzle?conference=' + conferenceId;
+            try {
+                await navigator.clipboard.writeText(puzzleUrl);
+                alert('✅ Puzzle URL copied to clipboard!\\n\\n' + puzzleUrl);
+            } catch (err) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = puzzleUrl;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('✅ Puzzle URL copied to clipboard!\\n\\n' + puzzleUrl);
+            }
+        }
+
         function showWinnerWheel(conferenceId) {
             window.open('/winner?conference=' + conferenceId, '_blank');
         }
@@ -1454,6 +1572,23 @@ async function handleAdminUI(env) {
                     console.error('Error reopening contest:', error);
                     alert('Error reopening contest. Please try again.');
                 });
+            }
+        }
+
+        function toggleHistorySection() {
+            const content = document.getElementById('historyContent');
+            const icon = document.querySelector('.collapse-icon');
+            
+            if (content.classList.contains('collapsed')) {
+                // Expand
+                content.classList.remove('collapsed');
+                content.style.maxHeight = content.scrollHeight + 'px';
+                icon.classList.remove('collapsed');
+            } else {
+                // Collapse
+                content.classList.add('collapsed');
+                content.style.maxHeight = '0px';
+                icon.classList.add('collapsed');
             }
         }
 
@@ -1521,6 +1656,9 @@ async function handleAdminUI(env) {
                 switch(action) {
                     case 'viewPuzzle':
                         viewPuzzle(conferenceId);
+                        break;
+                    case 'copyPuzzleUrl':
+                        copyPuzzleUrl(conferenceId);
                         break;
                     case 'reshufflePuzzle':
                         reshufflePuzzle(conferenceId);
@@ -1867,25 +2005,41 @@ async function handleWinnerWheel(url, env) {
             padding: 20px;
         }
 
-        /* 9:16 Portrait Layout (Default) */
+        /* 9:16 Portrait Layout (Default) - Optimized for vertical audience display */
         @media screen and (orientation: portrait) {
             .wheel-container {
-                max-width: 90vw;
-                padding: 20px;
+                max-width: 95vw;
+                min-height: 90vh;
+                padding: 2vh 2vw;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
             }
             
             .wheel {
-                width: 300px;
-                height: 300px;
+                width: min(70vw, 60vh);
+                height: min(70vw, 60vh);
             }
             
             .header h1 {
-                font-size: 2em;
+                font-size: clamp(2.5rem, 6vw, 4rem);
+            }
+            
+            .header p {
+                font-size: clamp(1.2rem, 3vw, 2rem);
             }
             
             .spin-btn {
-                padding: 12px 30px;
-                font-size: 1em;
+                padding: 2vh 4vw;
+                font-size: clamp(1.2rem, 4vw, 2rem);
+            }
+            
+            .participants-section {
+                margin-top: 2vh;
+            }
+            
+            .participants-section h3 {
+                font-size: clamp(1.5rem, 4vw, 2.5rem);
             }
         }
 
@@ -1914,7 +2068,6 @@ async function handleWinnerWheel(url, env) {
             border-radius: 20px;
             padding: 30px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            max-width: 700px;
             width: 100%;
             text-align: center;
         }
@@ -1925,13 +2078,18 @@ async function handleWinnerWheel(url, env) {
 
         .header h1 {
             color: #2d3436;
-            font-size: 2.5em;
+            font-size: clamp(2.5rem, 5vw, 4rem);
             margin-bottom: 10px;
         }
 
+        .header p {
+            font-size: clamp(1.2rem, 3vw, 2rem);
+            color: #636e72;
+        }
+
         .wheel {
-            width: 500px;
-            height: 500px;
+            width: min(60vw, 50vh);
+            height: min(60vw, 50vh);
             border-radius: 50%;
             position: relative;
             margin: 30px auto;
@@ -1986,13 +2144,13 @@ async function handleWinnerWheel(url, env) {
             background: linear-gradient(135deg, #ff6b35, #f7931e);
             color: white;
             border: none;
-            padding: 20px 40px;
+            padding: clamp(15px, 3vh, 25px) clamp(30px, 6vw, 50px);
             border-radius: 25px;
-            font-size: 1.5em;
+            font-size: clamp(1.2rem, 4vw, 2rem);
             font-weight: bold;
             cursor: pointer;
             transition: transform 0.2s;
-            margin: 20px;
+            margin: clamp(15px, 3vh, 30px);
         }
 
         .spin-btn:hover {
@@ -2002,6 +2160,28 @@ async function handleWinnerWheel(url, env) {
         .spin-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+        }
+
+        .participants h3 {
+            font-size: clamp(1.5rem, 4vw, 2.5rem);
+            color: #2d3436;
+            margin-bottom: 20px;
+        }
+
+        .participant-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            max-height: 40vh;
+            overflow-y: auto;
+        }
+
+        .participant {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #ff6b35;
+            font-size: clamp(0.9rem, 2.5vw, 1.2rem);
         }
 
         .winner-display {
@@ -2258,7 +2438,15 @@ async function handleWinnerWheel(url, env) {
 
                 if (response.ok) {
                     alert('Contest ended successfully! ' + selectedWinner.name + ' has been saved as the winner.');
-                    window.location.href = '/admin';
+                    // Stay on the winner wheel page to show the final result
+                    document.getElementById('spinBtn').style.display = 'none';
+                    document.getElementById('endContestBtn').style.display = 'none';
+                    
+                    // Show a "Contest Ended" message
+                    const winnerDisplay = document.getElementById('winnerDisplay');
+                    if (winnerDisplay) {
+                        winnerDisplay.innerHTML = '<h2>🎉 Contest Ended! 🎉</h2><p>Winner: <strong>' + selectedWinner.name + '</strong></p><p>Thank you all for participating!</p>';
+                    }
                 } else {
                     alert('Error ending contest. Please try again.');
                 }
@@ -2271,6 +2459,34 @@ async function handleWinnerWheel(url, env) {
         if (participants.length > 0) {
             createWheel();
         }
+        
+        // Auto-refresh to check for display mode changes (e.g., switch back to puzzle)
+        let displayModeInterval;
+        let isNavigating = false;
+        
+        displayModeInterval = setInterval(async function() {
+            if (isNavigating) return; // Prevent multiple navigation attempts
+            
+            try {
+                const response = await fetch('/api/conferences/${conferenceId}/display-mode');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.mode === 'ended') {
+                        // Contest ended, stop auto-refresh and stay on winner screen
+                        clearInterval(displayModeInterval);
+                        console.log('Contest ended, staying on winner screen');
+                    } else if (data.mode !== 'winner') {
+                        // Switch back to puzzle display
+                        isNavigating = true;
+                        clearInterval(displayModeInterval);
+                        console.log('Switching back to puzzle...');
+                        window.location.href = '/puzzle?conference=${conferenceId}';
+                    }
+                }
+            } catch (error) {
+                console.log('Display mode check failed:', error);
+            }
+        }, 3000); // Check every 3 seconds
     </script>
 </body>
 </html>`;
@@ -2304,8 +2520,8 @@ async function handleEndContest(request, env) {
     // Save the updated conference
     await env.PUZZLE_KV.put('conference:' + conferenceId, JSON.stringify(conference));
     
-    // Clear the display mode
-    await env.PUZZLE_KV.delete('display-mode:' + conferenceId);
+    // Set display mode to "ended" to show final winner screen
+    await env.PUZZLE_KV.put('display-mode:' + conferenceId, 'ended');
     
     return new Response(JSON.stringify({ success: true }), {
       headers: { 'Content-Type': 'application/json' }
