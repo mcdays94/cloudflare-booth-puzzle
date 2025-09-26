@@ -1344,7 +1344,7 @@ async function handleAdminUI(env) {
             <div class="section">
                 <h2>Active Conferences</h2>
                 <div id="conferencesList" class="conference-list">
-                    Loading conferences...
+                    Loading conferences... this may take ~10 seconds...
                 </div>
             </div>
 
