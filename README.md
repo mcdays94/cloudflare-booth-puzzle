@@ -1,16 +1,16 @@
 # Cloudflare Booth Puzzle System
 
-  > **⚠️ Vibe Coding Experiment Disclaimer**  
-  > This project is a vibe coding experiment - built for fun, exploration, and learning. The code, architecture, documentation (including this README), and features were developed in an experimental, iterative manner. While functional, this should be considered a proof-of-concept rather than production-ready enterprise software. Use at your own discretion! 🚀
-  
-  A comprehensive Cloudflare Workers application for managing interactive puzzles at cybersecurity conferences. This system replaces traditional cardboard puzzles with a digital solution that includes puzzle display, attendee submission, and winner selection.
-  
-  > **Note:** There is an improved, faster version of this project that uses Durable Objects instead of KV. Check it out here: https://github.com/mcdays94/cloudflare-booth-puzzle-do
-  
-  
-  ## Features
-  
-### 🧩 Puzzle Display
+> **⚠️ Vibe Coding Experiment Disclaimer**
+> This project is a vibe coding experiment - built for fun, exploration, and learning. The code, architecture, documentation (including this README), and features were developed in an experimental, iterative manner. While functional, this should be considered a proof-of-concept rather than production-ready enterprise software. Use at your own discretion! 🚀
+
+A comprehensive Cloudflare Workers application for managing interactive puzzles at cybersecurity conferences. This system replaces traditional cardboard puzzles with a digital solution that includes puzzle display, attendee submission, and winner selection.
+
+> Note: There is an improved, faster version of this project that uses Durable Objects instead of KV. Check it out here: [mcdays94/cloudflare-booth-puzzle-do](https://github.com/mcdays94/cloudflare-booth-puzzle-do)
+
+## Features
+
+### Puzzle Display
+
 - Beautiful, responsive puzzle interface optimized for vertical displays
 - QR code generation for easy mobile access
 - Real-time puzzle updates and reshuffling
@@ -18,7 +18,8 @@
 - Supports multiple conferences simultaneously
 - Optimized for audience viewing on large vertical monitors
 
-### 👨‍💼 Admin Interface
+### Admin Interface
+
 - Horizontal layout optimized for laptop screens
 - Conference management (create, activate, finish)
 - Puzzle reshuffling with new solutions
@@ -27,7 +28,8 @@
 - Collapsible conference history section
 - One-click display mode switching (puzzle ↔ winner wheel)
 
-### 📱 Mobile Submission
+### Mobile Submission
+
 - Mobile-optimized submission form with Turnstile CAPTCHA
 - Auto-advancing digit inputs
 - Real-time validation and feedback
